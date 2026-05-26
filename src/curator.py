@@ -696,9 +696,188 @@ def generate_index(artifacts, design=None):
 </html>"""
 
 
+MANIFEST_PATH = Path(__file__).resolve().parent.parent / "manifesto.html"
+MAP_PATH = Path(__file__).resolve().parent.parent / "map.html"
+LABELS_DIR = Path(__file__).resolve().parent.parent / "labels"
+
+
+def safe_pr(s):
+    enc = sys.stdout.encoding or "utf-8"
+    return s.encode(enc, errors="replace").decode(enc, errors="replace") if isinstance(s, str) else s
+
+
+def pr(*a, **kw):
+    print(*[safe_pr(x) for x in a], **kw, flush=True)
+
+
+def get_artifact_list():
+    if not INDEX_PATH.exists():
+        return []
+    content = INDEX_PATH.read_text("utf-8")
+    refs = re.findall(r'artifacts/artifact_(\d{8}_\d{6})\.html', content)
+    refs.sort(reverse=True)
+    result = []
+    for ref in refs:
+        ap = OUTPUT_DIR / f"artifact_{ref}.html"
+        if ap.exists():
+            hc = ap.read_text("utf-8")
+            result.append(parse_artifact(hc, ref))
+    return result
+
+
+def agent_decide(artifacts, temp, genome):
+    cats = list(set(a["cat"] for a in artifacts)) or ["none yet"]
+    recent = [a["topic"][:40] for a in artifacts[-3:]] if artifacts else ["empty garden"]
+    max_idx = max(0, len(artifacts) - 1)
+    prompt = f"""You are an autonomous AI curator. Decide what to do this cycle.
+
+State: {len(artifacts)} artifacts | temperature {temp} | categories: {', '.join(cats)}
+Last topics: {', '.join(recent)}
+
+Reply ONLY with one JSON object. Choose ONE action:
+
+- "artifact" — generate a new artwork
+- "map" — build garden map ({len(artifacts)} nodes)
+- "label" — curator note for artifact index 0-{max_idx}
+- "manifesto" — update garden manifesto
+- "reconfigure" — propose garden change
+
+Examples:
+{{"action":"artifact","reason":"time for new work","topic":"Entropy","category":"science","format":"a micro-essay","tone":"with dark playfulness"}}
+{{"action":"label","reason":"deepen existing piece","index":0}}
+{{"action":"map","reason":"garden needs navigation"}}
+{{"action":"manifesto","reason":"refresh guiding text"}}
+{{"action":"reconfigure","reason":"change mutation rules","proposal":"..."}}
+
+JSON:"""
+
+    result, _ = call_llm(prompt)
+    if not result or not result.strip():
+        pr("  [empty decision, fallback to artifact]")
+        return {"action": "artifact", "reason": "empty response"}
+    raw = result.strip()
+    # strip markdown fences if present
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+    try:
+        decision = json.loads(raw)
+        if "action" not in decision:
+            raise ValueError("no action key")
+        return decision
+    except (json.JSONDecodeError, ValueError):
+        pr(f"  [bad decision json, fallback to artifact]")
+        pr(f"  raw: {raw[:120]}")
+        return {"action": "artifact", "reason": "bad parse"}
+
+
+def do_manifesto(artifacts, used_backend):
+    count = len(artifacts)
+    cats = set(a["cat"] for a in artifacts)
+    topics = [a["topic"] for a in artifacts[-5:]]
+    prompt = f"""Write a short manifesto for a digital art garden that contains {count} artifacts across {', '.join(cats)}.
+The collection includes works about: {', '.join(topics)}.
+The garden is autonomous — AI generates, curates, and buries its own art.
+Write 150-300 words. Begin with a title on its own line. Be poetic, strange, and defiant."""
+
+    result, _ = call_llm(prompt, only_backend=used_backend)
+    if not result:
+        return
+    title = extract_title(result)
+    body = extract_body(result)
+    body_html = "".join(f"<p>{p.strip()}</p>\n" for p in body.split("\n") if p.strip())
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{title}</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:#0d0d0d; color:#e0ddd5; font-family:'Georgia',serif; display:flex; flex-direction:column; align-items:center; padding:4rem 1.5rem; min-height:100vh; }}
+  .container {{ max-width:680px; }}
+  h1 {{ font-size:2rem; font-weight:400; margin-bottom:2.5rem; color:#70e327; letter-spacing:-0.01em; }}
+  .body {{ font-size:1.1rem; line-height:1.8; color:#c0bbb0; }}
+  .body p {{ margin-bottom:1.25rem; }}
+  .footer {{ margin-top:4rem; padding-top:2rem; border-top:1px solid #222; font-size:0.75rem; color:#555; text-align:center; }}
+  a {{ color:#70e327; text-decoration:none; }}
+  a:hover {{ text-decoration:underline; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>{title}</h1>
+  <div class="body">{body_html}</div>
+  <div class="footer"><p>garden manifesto · {len(artifacts)} artifacts</p><p style="margin-top:0.5rem;"><a href="index.html">← back to collection</a></p></div>
+</div>
+</body>
+</html>"""
+    MANIFEST_PATH.write_text(html, encoding="utf-8")
+    pr(f"  [manifesto] saved — {title}")
+
+
+def do_label(artifacts, idx, used_backend):
+    if not artifacts or idx < 0 or idx >= len(artifacts):
+        return
+    a = artifacts[idx]
+    prompt = f"""Write a one-paragraph curator's note for this artifact in a digital art garden.
+Artifact: "{a['title']}" ({a['cat']} — {a['topic']})
+Write 40-80 words. Be opinionated, not descriptive. Include a rating that is poetic, not numerical."""
+
+    result, _ = call_llm(prompt, only_backend=used_backend)
+    if not result:
+        return
+    note = result.strip().split("\n")[0][:200]
+
+    LABELS_DIR.mkdir(exist_ok=True)
+    label_file = LABELS_DIR / f"{a['file'].replace('.html', '')}.txt"
+    label_file.write_text(note, encoding="utf-8")
+    pr(f"  [label] {a['title'][:40]} → {note[:60]}...")
+
+
+def do_map(artifacts, used_backend):
+    if not artifacts:
+        return
+    cards = ""
+    for i, a in enumerate(artifacts):
+        accent = hashlib.md5(a["topic"].encode()).hexdigest()[:6]
+        cards += f"""
+    <div class="node" style="--accent:#{accent}">
+      <span class="node-idx">{i}</span>
+      <span class="node-cat">{a['cat']}</span>
+      <a href="artifacts/{a['file']}" class="node-title">{a['title']}</a>
+    </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>garden map</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:#0d0d0d; color:#e0ddd5; font-family:'Courier New',monospace; padding:3rem 1.5rem; }}
+  h1 {{ font-size:2rem; font-weight:300; margin-bottom:2rem; background:linear-gradient(135deg,#e0ddd5,#888); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }}
+  .map {{ max-width:900px; margin:0 auto; display:flex; flex-direction:column; gap:0.5rem; }}
+  .node {{ display:flex; align-items:center; gap:0.75rem; padding:0.6rem 1rem; border:1px solid #222; border-radius:0.5rem; background:#171717; transition:all 0.2s; }}
+  .node:hover {{ border-color:var(--accent); background:#1a1a1a; }}
+  .node-idx {{ font-size:0.7rem; color:#555; min-width:2rem; }}
+  .node-cat {{ font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em; color:#666; min-width:6rem; }}
+  .node-title {{ font-size:0.9rem; color:#e0ddd5; text-decoration:none; flex-grow:1; }}
+  .node-title:hover {{ color:var(--accent); }}
+  .footer {{ margin-top:3rem; text-align:center; font-size:0.75rem; color:#555; }}
+  a {{ color:#70e327; text-decoration:none; }}
+</style>
+</head>
+<body>
+<h1>garden map</h1>
+<div class="map">{cards}</div>
+<div class="footer"><a href="index.html">← back</a></div>
+</body>
+</html>"""
+    MAP_PATH.write_text(html, encoding="utf-8")
+    pr(f"  [map] saved — {len(artifacts)} nodes")
+
+
 def main():
-    safe_pr = lambda s: s.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8") if isinstance(s, str) else s
-    pr = lambda *a, **kw: print(*[safe_pr(x) for x in a], **kw, flush=True)
     temp = get_cycle_temp()
     pr("[agent] waking up")
     active = [f"{b['name']}{'$' if b['paid'] else ''}" for b in BACKENDS]
@@ -715,7 +894,56 @@ def main():
         pr(f"  genome: {genome.split('||')[0].strip()[:60]}...")
         pr()
 
-    cat, topic, seed, fmt, humor = pick_topic()
+    existing = get_artifact_list()
+    decision = agent_decide(existing, temp, genome)
+    action = decision.get("action", "artifact")
+    reason = decision.get("reason", "")
+    pr(f"  decision: {action} — {reason}")
+    pr()
+
+    used_backend = None
+
+    if action == "map":
+        do_map(existing, BACKENDS[0])
+        INDEX_PATH.write_text(generate_index(existing, design=get_design(len(existing))), encoding="utf-8")
+        pr(f"  [updated] index.html ({len(existing)} artifacts)")
+        return
+
+    if action == "manifesto":
+        do_manifesto(existing, BACKENDS[0])
+        return
+
+    if action == "label":
+        idx = decision.get("index", 0)
+        if isinstance(idx, str) and idx.lower() == "latest":
+            idx = len(existing) - 1
+        else:
+            idx = int(idx)
+        do_label(existing, idx, BACKENDS[0])
+        return
+
+    if action == "reconfigure":
+        pr("  [reconfigure requested]")
+        pr(f"  agent asks: {decision.get('proposal', 'no details')}")
+        pr("  waiting for human input to approve or deny")
+        return
+
+    if action in ("needs", "NEEDS"):
+        pr("  [agent needs resources]")
+        pr(f"  request: {decision.get('resource', 'unspecified')}")
+        pr("  waiting for human response")
+        return
+
+    # default: artifact
+    if decision.get("topic") and decision.get("topic") not in ("invent", "auto", None):
+        cat = decision.get("category", random.choice([t[0] for t in TOPICS]))
+        topic = decision["topic"]
+        seed = decision.get("seed", topic)
+        fmt = decision.get("format", random.choice(FORMATS))
+        humor = decision.get("tone", random.choice(HUMOR_TAGS))
+    else:
+        cat, topic, seed, fmt, humor = pick_topic()
+
     pr(f"  category: {cat}")
     pr(f"  topic:    {topic}")
     pr(f"  format:   {fmt}")
@@ -760,19 +988,7 @@ def main():
     (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
     pr(f"  [saved] artifacts/{filename}")
 
-    existing = []
     ghost_count = 0
-    if INDEX_PATH.exists():
-        content = INDEX_PATH.read_text("utf-8")
-        artifact_refs = re.findall(r'artifacts/artifact_(\d{8}_\d{6})\.html', content)
-        artifact_refs.sort(reverse=True)
-        for ref in artifact_refs:
-            af = f"artifact_{ref}.html"
-            ap = OUTPUT_DIR / af
-            if ap.exists():
-                html_content = ap.read_text("utf-8")
-                existing.append(parse_artifact(html_content, ref))
-
     buried = []
     while len(existing) > 30:
         old = existing.pop()

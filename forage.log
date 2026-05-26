@@ -6,3 +6,28 @@
 [2026-05-26 08:27:33] deepseek-free-89444680: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
 [2026-05-26 08:27:34] deepseek-free-8c84662e: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
 [2026-05-26 08:27:54] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:32:25] deepseek-free-89444680: free key loaded
+[2026-05-26 08:32:25] deepseek-free-8c84662e: free key loaded
+[2026-05-26 08:32:25] proxy-deepseek-chat-v3-0324: paid key loaded
+[2026-05-26 08:32:25] proxy-deepseek-r1-0528: paid key loaded
+[2026-05-26 08:32:25] openrouter: no key
+[2026-05-26 08:32:27] deepseek-free-89444680: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:32:28] deepseek-free-8c84662e: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:32:54] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:32:55] deepseek-free-89444680: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:32:56] deepseek-free-8c84662e: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:33:00] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:46:43] deepseek-free-89444680: free key loaded
+[2026-05-26 08:46:43] deepseek-free-8c84662e: free key loaded
+[2026-05-26 08:46:43] proxy-deepseek-chat-v3-0324: paid key loaded
+[2026-05-26 08:46:43] proxy-deepseek-r1-0528: paid key loaded
+[2026-05-26 08:46:43] openrouter: no key
+[2026-05-26 08:46:47] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:47:31] deepseek-free-89444680: free key loaded
+[2026-05-26 08:47:31] deepseek-free-8c84662e: free key loaded
+[2026-05-26 08:47:31] proxy-deepseek-chat-v3-0324: paid key loaded
+[2026-05-26 08:47:31] proxy-deepseek-r1-0528: paid key loaded
+[2026-05-26 08:47:31] openrouter: no key
+[2026-05-26 08:47:38] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:47:56] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
+[2026-05-26 08:48:05] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
