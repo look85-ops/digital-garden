@@ -1,0 +1,5 @@
+[2026-05-26 08:06:23] deepseek: no key — DEEPSEEK_API_KEY not set
+[2026-05-26 08:06:23] openrouter: key found — OPENROUTER_API_KEY
+[2026-05-26 08:06:24] openrouter: failed — model=qwen/qwen3-coder:free: Provider returned error
+[2026-05-26 08:06:46] openrouter: failed — model=minimax/minimax-m2.5:free: Provider returned error
+[2026-05-26 08:06:47] openrouter: failed — model=cognitivecomputations/dolphin-mistral-24b-venice-edition:free: Provider returned error

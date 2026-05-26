@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 import math
 import random
 import hashlib
@@ -40,11 +41,107 @@ INSTITUTIONS = [
     "at an underground data rave doubling as exhibition space",
 ]
 
-OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+FORAGE_LOG = Path(__file__).resolve().parent.parent / "forage.log"
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+
+def log_forage(source, status, detail=""):
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"[{ts}] {source}: {status}"
+    if detail:
+        entry += f" — {detail}"
+    with open(FORAGE_LOG, "a", encoding="utf-8") as f:
+        f.write(entry + "\n")
+
+
+BACKENDS = []
+
+
+def register_backend(name, key_env, url, make_payload, parse_response, fallback_models=None):
+    key = os.environ.get(key_env, "")
+    if key:
+        BACKENDS.append({
+            "name": name,
+            "key": key,
+            "url": url,
+            "make_payload": make_payload,
+            "parse_response": parse_response,
+            "models": fallback_models or [None],
+        })
+        log_forage(name, "key found", key_env)
+    else:
+        log_forage(name, "no key", f"{key_env} not set")
+
+
+def forager_deepseek():
+    def payload_fn(model):
+        return {
+            "model": model or "deepseek-chat",
+            "messages": [{"role": "user", "content": "__PROMPT__"}],
+            "temperature": get_cycle_temp(),
+            "max_tokens": 1000,
+            "top_p": 0.95,
+        }
+    def parse_fn(data):
+        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    register_backend("deepseek", "DEEPSEEK_API_KEY",
+                     "https://api.deepseek.com/v1/chat/completions",
+                     payload_fn, parse_fn,
+                     ["deepseek-chat", "deepseek-reasoner"])
+
+
+def forager_openrouter():
+    def payload_fn(model):
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": "__PROMPT__"}],
+            "temperature": get_cycle_temp(),
+            "max_tokens": 1000,
+            "top_p": 0.95,
+        }
+    def parse_fn(data):
+        if "error" in data:
+            raise RuntimeError(data["error"].get("message", str(data["error"])))
+        return (data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                or data.get("choices", [{}])[0].get("message", {}).get("reasoning", ""))
+    register_backend("openrouter", "OPENROUTER_API_KEY",
+                     "https://openrouter.ai/api/v1/chat/completions",
+                     payload_fn, parse_fn, [
+                         "qwen/qwen3-coder:free",
+                         "minimax/minimax-m2.5:free",
+                         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+                     ])
+
+
+def forager_gemini():
+    def payload_fn(model):
+        return {
+            "contents": [{"parts": [{"text": "__PROMPT__"}]}],
+            "generationConfig": {
+                "temperature": get_cycle_temp(),
+                "maxOutputTokens": 1000,
+                "topP": 0.95,
+            },
+        }
+    def parse_fn(data):
+        if "error" in data:
+            raise RuntimeError(data["error"].get("message", str(data["error"])))
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if parts:
+                return parts[0].get("text", "")
+        raise RuntimeError("empty response")
+    key = os.environ.get("GEMINI_API_KEY", "")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    if key:
+        register_backend("gemini", "GEMINI_API_KEY",
+                         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                         payload_fn, parse_fn)
+
+
+forager_deepseek()
+forager_openrouter()
+forager_gemini()
 
 MUTATIONS = [
     "Write as if the language itself is decaying mid-sentence.",
@@ -156,87 +253,88 @@ def build_prompt(cat, topic, seed, fmt, humor):
     )
 
 
-DEEPSEEK_FALLBACK_MODELS = ["deepseek-chat", "deepseek-reasoner"]
-OPENROUTER_FALLBACK_MODELS = [
-    "deepseek/deepseek-v4-flash:free",
-    "qwen/qwen3-coder:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "minimax/minimax-m2.5:free",
-]
-
-
-def call_llm_deepseek(prompt, model="deepseek-chat"):
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": get_cycle_temp(),
-        "max_tokens": 1000,
-        "top_p": 0.95,
-    }
-    resp = requests.post(
-        DEEPSEEK_URL,
-        headers={"Authorization": f"Bearer {DEEPSEEK_KEY}"},
-        json=payload,
-        timeout=180,
-    )
-    data = resp.json()
-    if "error" in data:
-        raise RuntimeError(data["error"].get("message", str(data["error"])))
-    choices = data.get("choices", [])
-    if choices:
-        content = choices[0].get("message", {}).get("content", "")
-        if content:
-            return content
-    raise RuntimeError("empty response")
-
-
-def call_llm_openrouter(prompt, model):
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": get_cycle_temp(),
-        "max_tokens": 1000,
-        "top_p": 0.95,
-    }
-    resp = requests.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {OPENROUTER_KEY}"},
-        json=payload,
-        timeout=180,
-    )
-    data = resp.json()
-    if "error" in data:
-        msg = data["error"].get("message", str(data["error"]))
-        code = data["error"].get("code", resp.status_code)
-        print(f"  [debug] OR code={code}, msg={msg[:80]}", flush=True)
-        raise RuntimeError(f"OR error: {msg[:60]}")
-    choices = data.get("choices", [])
-    if choices:
-        content = choices[0].get("message", {}).get("content", "") or choices[0].get("message", {}).get("reasoning", "")
-        if content:
-            return content
-    raise RuntimeError("empty OR response")
-
-
 def call_llm(prompt):
-    if DEEPSEEK_KEY:
-        for m in DEEPSEEK_FALLBACK_MODELS:
+    for backend in BACKENDS:
+        name = backend["name"]
+        headers = {"Authorization": f"Bearer {backend['key']}"}
+        if name == "gemini":
+            headers = {}
+        for model in backend["models"]:
+            payload = backend["make_payload"](model)
+            payload_str = json.dumps(payload).replace("__PROMPT__", prompt)
             try:
-                return call_llm_deepseek(prompt, model=m)
+                resp = requests.post(
+                    backend["url"],
+                    headers=headers,
+                    data=payload_str,
+                    timeout=180,
+                )
+                data = resp.json()
+                content = backend["parse_response"](data)
+                if content:
+                    log_forage(name, "success", f"model={model or 'default'}")
+                    return content
             except Exception as e:
-                print(f"  [deepseek {m} failed: {str(e)[:50]}]", flush=True)
+                log_forage(name, "failed", f"model={model or 'default'}: {str(e)[:60]}")
                 continue
-    if OPENROUTER_KEY:
-        for m in OPENROUTER_FALLBACK_MODELS:
-            try:
-                return call_llm_openrouter(prompt, model=m)
-            except Exception as e:
-                print(f"  [openrouter {m} failed: {str(e)[:50]}]", flush=True)
-                continue
-    print("  [ERROR] set DEEPSEEK_API_KEY or OPENROUTER_API_KEY")
-    print("  DeepSeek: free 10M tokens at https://platform.deepseek.com (no payment)")
+    print("  [no backend succeeded. set DEEPSEEK_API_KEY (free) or OPENROUTER_API_KEY]")
+    print("  DeepSeek: free 10M tokens at https://platform.deepseek.com")
     print("  OpenRouter: https://openrouter.ai/keys")
+    print("  Gemini: free tier at https://aistudio.google.com/apikey")
+    print()
+    print("  last forage log entries:")
+    if FORAGE_LOG.exists():
+        lines = FORAGE_LOG.read_text("utf-8").strip().split("\n")
+        for line in lines[-5:]:
+            print(f"    {line}")
     sys.exit(1)
+
+
+GHOSTS_DIR = Path(__file__).resolve().parent.parent / "ghosts"
+
+
+def paranoid_rating(title, body, cat):
+    seed_str = title + body[:50] + cat
+    h = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+    raw_score = (h % 100) / 100.0
+    lie = math.sin(h * 7.3) * 0.3
+    score = max(0.01, min(0.99, raw_score + lie))
+    labels = [
+        (0.0, 0.15, "forgotten masterpiece", "the critics were not ready"),
+        (0.15, 0.3, "deeply unsettling", "recommended for strong stomachs only"),
+        (0.3, 0.45, "interesting failure", "more honest than most successes"),
+        (0.45, 0.55, "adequately mediocre", "will be cited in footnotes no one reads"),
+        (0.55, 0.7, "competent but soulless", "technically perfect, emotionally dead"),
+        (0.7, 0.85, "dangerously relevant", "too timely to be taken seriously"),
+        (0.85, 1.0, "transcendent trash", "posterity will argue about it"),
+    ]
+    for lo, hi, label, note in labels:
+        if lo <= score < hi:
+            return label, note, round(score * 100, 1)
+    return "unclassifiable", "resists evaluation", 50.0
+
+
+def track_ghost(artifact_id, title, cat):
+    GHOSTS_DIR.mkdir(exist_ok=True)
+    ghost_file = GHOSTS_DIR / f"{artifact_id}.ghost"
+    ghost_file.write_text(
+        json.dumps({"id": artifact_id, "title": title, "cat": cat,
+                     "buried": datetime.now(timezone.utc).isoformat()}),
+        encoding="utf-8",
+    )
+    log_forage("ghost", "buried", f"{title[:40]}")
+
+
+def resurrect_ghosts():
+    if not GHOSTS_DIR.exists():
+        return []
+    ghosts = []
+    for f in sorted(GHOSTS_DIR.glob("*.ghost"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            ghosts.append(json.loads(f.read_text("utf-8")))
+        except Exception:
+            continue
+    return ghosts
 
 
 def extract_title(text):
@@ -254,11 +352,29 @@ def extract_body(text):
     return text
 
 
-def generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id):
+def generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id, rating=None, gossip=None):
     body_html = "".join(
         f"<p>{para.strip()}</p>\n" for para in body.split("\n") if para.strip()
     )
     accent = hashlib.md5(topic.encode()).hexdigest()[:6]
+
+    rating_html = ""
+    if rating:
+        label, note, score = rating
+        rating_html = f"""
+  <div class="rating" style="margin:2rem 0; padding:1rem; border:1px solid {accent}33; border-radius:0.5rem; background:{accent}08;">
+    <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em; color:#666; margin-bottom:0.3rem;">curator's assessment</div>
+    <div style="font-size:1.1rem; color:{accent};">{label}</div>
+    <div style="font-size:0.8rem; color:#888; margin-top:0.2rem;">{note} — relevance {score}%</div>
+  </div>"""
+
+    gossip_html = ""
+    if gossip:
+        gossip_html = f"""
+  <div class="gossip" style="margin-top:2rem; padding:1rem 0; border-top:1px solid #222;">
+    <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em; color:#555; margin-bottom:0.5rem;">street chatter</div>
+    <p style="font-size:0.85rem; color:#777; line-height:1.5; font-style:italic;">"{gossip}"</p>
+  </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -321,7 +437,7 @@ def generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_i
   <h1>{title}</h1>
   <div class="body">
 {body_html}
-  </div>
+  </div>{rating_html}{gossip_html}
   <div class="footer">
     <p>topic: {topic} — {seed}</p>
     <p style="margin-top:0.5rem;"><a href="index.html">← back</a></p>
@@ -338,12 +454,17 @@ def generate_index(artifacts, design=None):
         excerpt = a["body"][:150].replace("\n", " ")
         if len(a["body"]) > 150:
             excerpt += "…"
+        ghost_label = " <span style='color:#555;font-size:0.65rem;'>ghost</span>" if a.get("ghost") else ""
+        rating_tag = ""
+        if a.get("rating_label"):
+            rating_tag = f'<span style="font-size:0.65rem;color:#666;display:block;margin-top:0.3rem;">{a["rating_label"]}</span>'
         cards += f"""
-    <a href="artifacts/{a['file']}" class="card" style="--accent:#{accent}">
-      <span class="card-cat">{a['cat']}</span>
+    <a href="artifacts/{a['file']}" class="card{' ghost' if a.get('ghost') else ''}" style="--accent:#{accent}">
+      <span class="card-cat">{a['cat']}{ghost_label}</span>
       <span class="card-date">{a['date']}</span>
       <h2 class="card-title">{a['title']}</h2>
       <p class="card-excerpt">{excerpt}</p>
+      {rating_tag}
       <span class="card-arrow">→</span>
     </a>"""
 
@@ -437,6 +558,8 @@ def generate_index(artifacts, design=None):
     transition:color 0.3s;
   }}
   .card:hover .card-arrow {{ color:var(--accent); }}
+  .card.ghost {{ opacity:0.45; filter:grayscale(0.6); }}
+  .card.ghost:hover {{ opacity:0.75; filter:grayscale(0.3); }}
   .empty {{
     grid-column:1/-1; text-align:center; padding:6rem 2rem;
     color:#555; font-size:1.1rem;
@@ -474,10 +597,9 @@ def main():
     pr = lambda *a, **kw: print(*[safe_pr(x) for x in a], **kw, flush=True)
     temp = get_cycle_temp()
     pr("[agent] waking up")
-    if DEEPSEEK_KEY:
-        pr(f"  backend: deepseek api")
-    elif OPENROUTER_KEY:
-        pr(f"  backend: openrouter")
+    active = [b["name"] for b in BACKENDS]
+    if active:
+        pr(f"  backends: {', '.join(active)}")
     pr(f"  temp:   {temp} (14d cycle)")
     pr()
 
@@ -512,13 +634,28 @@ def main():
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     filename = f"artifact_{artifact_id}.html"
 
-    html = generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id)
+    rating = paranoid_rating(title, body, cat)
+    pr(f"  curator: {rating[0]} ({rating[2]}%)")
+
+    gossip = None
+    if random.random() < 0.4:
+        gossip_prompt = (
+            f"Turn this art description into a single gossip headline or YouTube comment "
+            f"(max 15 words, slangy, either awestruck or dismissive):\n\n{title}\n\n{body[:200]}"
+        )
+        gossip_raw = call_llm(gossip_prompt)
+        if gossip_raw:
+            gossip = gossip_raw.strip().strip('"').strip("'").split("\n")[0][:120]
+            pr(f"  gossip: {gossip}")
+
+    html = generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id, rating=rating, gossip=gossip)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
     pr(f"  [saved] artifacts/{filename}")
 
     existing = []
+    ghost_count = 0
     if INDEX_PATH.exists():
         content = INDEX_PATH.read_text("utf-8")
         artifact_refs = re.findall(r'artifacts/artifact_(\d{8}_\d{6})\.html', content)
@@ -530,6 +667,27 @@ def main():
                 html_content = ap.read_text("utf-8")
                 existing.append(parse_artifact(html_content, ref))
 
+    buried = []
+    while len(existing) > 30:
+        old = existing.pop()
+        track_ghost(old["file"].replace("artifact_", "").replace(".html", ""), old["title"], old["cat"])
+        buried.append(old["title"][:40])
+        ghost_count += 1
+    if buried:
+        pr(f"  [ghosts] {len(buried)} artifacts buried: {', '.join(buried[:3])}{'...' if len(buried) > 3 else ''}")
+
+    if random.random() < 0.2:
+        ghosts = resurrect_ghosts()
+        if ghosts:
+            g = random.choice(ghosts)
+            ghost_file = f"artifact_{g['id']}.html"
+            ghost_path = OUTPUT_DIR / ghost_file
+            if ghost_path.exists():
+                gh_content = ghost_path.read_text("utf-8")
+                existing.append(parse_artifact(gh_content, g["id"], ghost=True))
+                pr(f"  [ghost resurrected] {g['title'][:50]}")
+                ghost_count += 1
+
     existing.append({
         "file": filename,
         "title": title,
@@ -537,10 +695,11 @@ def main():
         "cat": cat,
         "topic": topic,
         "date": date_str,
+        "rating_label": rating[0],
     })
 
     INDEX_PATH.write_text(generate_index(existing, design=get_design(len(existing))), encoding="utf-8")
-    pr(f"  [updated] index.html ({len(existing)} artifacts)")
+    pr(f"  [updated] index.html ({len(existing)} artifacts, {ghost_count} ghosts)")
     pr()
     try:
         pr(f"  -- {title}")
@@ -549,7 +708,7 @@ def main():
     pr()
 
 
-def parse_artifact(html, ref):
+def parse_artifact(html, ref, ghost=False):
     title_m = re.search(r'<h1>(.*?)</h1>', html, re.DOTALL)
     title = title_m.group(1).strip() if title_m else "Untitled"
     body_m = re.search(r'<div class="body">(.*?)</div>', html, re.DOTALL)
@@ -560,13 +719,18 @@ def parse_artifact(html, ref):
     cat = cat_m.group(1) if cat_m else "unknown"
     topic_m = re.search(r'topic:\s*(.*?)\s*—', html)
     topic = topic_m.group(1).strip() if topic_m else "unknown"
+    rating_m = re.search(r'class="rating".*?relevance (\d+(?:\.\d+)?)%', html, re.DOTALL)
+    rating_label = rating_m.group(1) + "%" if rating_m else None
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return {
         "file": f"artifact_{ref}.html",
         "title": title,
         "body": body,
         "cat": cat,
         "topic": topic,
-        "date": ref[:4] + "-" + ref[4:6] + "-" + ref[6:8],
+        "date": ref[:4] + "-" + ref[4:6] + "-" + ref[6:8] if len(ref) >= 8 else today,
+        "ghost": ghost,
+        "rating_label": rating_label,
     }
 
 
