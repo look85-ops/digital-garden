@@ -27,8 +27,8 @@ jobs:
 
       - name: Run curator
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          EITHER_API_KEY: ${{ secrets.EITHER_API_KEY }}
+          FREE_API_KEYS: ${{ secrets.FREE_API_KEYS }}
         run: python src/curator.py
 
       - name: Commit new artifacts

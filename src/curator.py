@@ -97,9 +97,12 @@ PROXY_URL = os.environ.get("BOTHUB_URL", "https://openai.bothub.chat/v1")
 
 
 def read_api_txt():
-    if not API_FILE.exists():
-        return
-    for line in API_FILE.read_text("utf-8").strip().split("\n"):
+    raw = ""
+    if API_FILE.exists():
+        raw = API_FILE.read_text("utf-8")
+    elif os.environ.get("EITHER_API_KEY", ""):
+        raw = os.environ["EITHER_API_KEY"]
+    for line in raw.strip().split("\n"):
         line = line.strip()
         if not line or ":" not in line:
             continue
@@ -178,9 +181,12 @@ def forager_gemini():
 
 
 def read_free_api():
-    if not API_FREE_FILE.exists():
-        return
-    for line in API_FREE_FILE.read_text("utf-8").strip().split("\n"):
+    raw = ""
+    if API_FREE_FILE.exists():
+        raw = API_FREE_FILE.read_text("utf-8")
+    elif os.environ.get("FREE_API_KEYS", ""):
+        raw = os.environ["FREE_API_KEYS"]
+    for line in raw.strip().split("\n"):
         line = line.strip()
         if not line or not line.startswith("sk-"):
             continue
