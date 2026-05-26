@@ -215,8 +215,8 @@ read_free_api()
 read_api_txt()
 forager_openrouter()
 forager_gemini()
-# free first, then proxy paid backends (bothub)
-BACKENDS.sort(key=lambda b: (b["paid"], "free" not in b["name"], b["name"]))
+# paid (known-working) first, free backends as fallback
+BACKENDS.sort(key=lambda b: (not b["paid"], b["name"]))
 
 MUTATIONS = [
     "Write as if the language itself is decaying mid-sentence.",
@@ -328,8 +328,11 @@ def build_prompt(cat, topic, seed, fmt, humor):
     )
 
 
-def call_llm(prompt):
-    for backend in BACKENDS:
+def call_llm(prompt, only_backend=None):
+    backends = [only_backend] if only_backend else BACKENDS
+    for backend in backends:
+        if backend is None:
+            continue
         name = backend["name"]
         is_paid = backend["paid"]
         print(f"  [trying {name}]", flush=True)
@@ -363,7 +366,7 @@ def call_llm(prompt):
                         cost = (in_tok * backend["cost_in"] + out_tok * backend["cost_out"]) / 1_000_000
                         log_cost(cost, f"{name}/{model}: {in_tok}↑ {out_tok}↓")
                     log_forage(name, "success", f"model={model}")
-                    return content
+                    return content, backend
                 log_forage(name, "short/no content", f"model={model}")
             except Exception as e:
                 log_forage(name, "failed", f"model={model or 'default'}: {str(e)[:60]}")
@@ -432,10 +435,17 @@ def resurrect_ghosts():
 
 
 def extract_title(text):
-    for line in text.strip().split("\n"):
-        line = line.strip().strip("*").strip('"').strip("**")
-        if line and len(line) < 120:
-            return line
+    lines = [l.strip() for l in text.strip().split("\n")]
+    for line in lines:
+        m = re.match(r'^\*{0,2}Title\s*[:\-–—]\s*(.+?)\*{0,2}$', line, re.IGNORECASE)
+        if m:
+            return m.group(1).strip().strip('"').strip("'")
+        m = re.match(r'^##\s+(.+)$', line)
+        if m:
+            return m.group(1).strip().strip('"').strip("'")
+        clean = line.strip("*").strip('"').strip("'")
+        if clean and len(clean) < 120:
+            return clean
     return "Untitled"
 
 
@@ -715,7 +725,7 @@ def main():
     prompt = build_prompt(cat, topic, seed, fmt, humor)
     pr("  sending prompt...")
 
-    result = call_llm(prompt)
+    result, used_backend = call_llm(prompt)
     if not result:
         pr("  [no content returned]")
         return
@@ -739,7 +749,7 @@ def main():
             f"Turn this art description into a single gossip headline or YouTube comment "
             f"(max 15 words, slangy, either awestruck or dismissive):\n\n{title}\n\n{body[:200]}"
         )
-        gossip_raw = call_llm(gossip_prompt)
+        gossip_raw, _ = call_llm(gossip_prompt, only_backend=used_backend)
         if gossip_raw:
             gossip = gossip_raw.strip().strip('"').strip("'").split("\n")[0][:120]
             pr(f"  gossip: {gossip}")
