@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
       
       - uses: actions/setup-python@v5
         with:
@@ -30,9 +32,12 @@ jobs:
         run: python src/curator.py
 
       - name: Commit new artifacts
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "garden-bot"
           git config user.email "garden-bot@users.noreply.github.com"
+          git remote set-url origin https://look85-ops:${GH_PAT}@github.com/look85-ops/digital-garden.git
           git add artifacts/ index.html
           git diff --staged --quiet || git commit -m "garden: new artifact $(date -u +'%Y-%m-%d %H:%M')"
           git push
