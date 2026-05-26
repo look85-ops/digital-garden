@@ -20,8 +20,8 @@ CYCLE_DAYS = 14
 EPOCH = date(2026, 1, 1)
 MONTHLY_BUDGET_USD = 5.0
 MONTHLY_BUDGET_RUB = 3000.0
-DECISION_SKIP_RATE = 0.8  # skip expensive LLM decision, go straight to artifact
-GOSSIP_RATE = 0.2  # fewer gossip calls to save cost
+DECISION_SKIP_RATE = 0.6
+GOSSIP_RATE = 0.1
 
 PERSONAS = [
     "an internationally acclaimed contemporary artist exhibiting at the Venice Biennale",
