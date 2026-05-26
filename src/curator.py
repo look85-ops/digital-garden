@@ -42,6 +42,10 @@ INSTITUTIONS = [
 ]
 
 FORAGE_LOG = Path(__file__).resolve().parent.parent / "forage.log"
+COST_LOG = Path(__file__).resolve().parent.parent / "cost.log"
+API_FILE = Path(__file__).resolve().parent.parent / "API.txt"
+API_FREE_FILE = Path(__file__).resolve().parent.parent / "DGAPIFREE.txt"
+TOTAL_COST = [0.0]
 
 
 def log_forage(source, status, detail=""):
@@ -53,11 +57,19 @@ def log_forage(source, status, detail=""):
         f.write(entry + "\n")
 
 
+def log_cost(cents, detail):
+    TOTAL_COST[0] += cents
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    with open(COST_LOG, "a", encoding="utf-8") as f:
+        f.write(f"[{ts}] ${cents:.5f} ({detail})\n")
+
+
 BACKENDS = []
 
 
-def register_backend(name, key_env, url, make_payload, parse_response, fallback_models=None):
-    key = os.environ.get(key_env, "")
+def register_backend(name, key, url, make_payload, parse_response,
+                      models=None, paid=False, cost_per_1m_input=0, cost_per_1m_output=0,
+                      needs_auth_header=True):
     if key:
         BACKENDS.append({
             "name": name,
@@ -65,28 +77,51 @@ def register_backend(name, key_env, url, make_payload, parse_response, fallback_
             "url": url,
             "make_payload": make_payload,
             "parse_response": parse_response,
-            "models": fallback_models or [None],
+            "models": models or [None],
+            "paid": paid,
+            "cost_in": cost_per_1m_input,
+            "cost_out": cost_per_1m_output,
+            "needs_auth_header": needs_auth_header,
         })
-        log_forage(name, "key found", key_env)
+        tag = "paid" if paid else "free"
+        log_forage(name, f"{tag} key loaded")
     else:
-        log_forage(name, "no key", f"{key_env} not set")
+        log_forage(name, "no key")
 
 
-def forager_deepseek():
-    def payload_fn(model):
-        return {
-            "model": model or "deepseek-chat",
-            "messages": [{"role": "user", "content": "__PROMPT__"}],
-            "temperature": get_cycle_temp(),
-            "max_tokens": 1000,
-            "top_p": 0.95,
-        }
-    def parse_fn(data):
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    register_backend("deepseek", "DEEPSEEK_API_KEY",
-                     "https://api.deepseek.com/v1/chat/completions",
-                     payload_fn, parse_fn,
-                     ["deepseek-chat", "deepseek-reasoner"])
+PROXY_URL = os.environ.get("BOTHUB_URL", "https://openai.bothub.chat/v1")
+
+
+def read_api_txt():
+    if not API_FILE.exists():
+        return
+    for line in API_FILE.read_text("utf-8").strip().split("\n"):
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        model, key = line.split(":", 1)
+        if not model or not key:
+            continue
+        def payload_fn(m):
+            return {
+                "model": m,
+                "messages": [{"role": "user", "content": "__PROMPT__"}],
+                "temperature": get_cycle_temp(),
+                "max_tokens": 1000,
+                "top_p": 0.95,
+            }
+        def parse_fn(data):
+            usage = data.get("usage", {})
+            in_tok = usage.get("prompt_tokens", 0)
+            out_tok = usage.get("completion_tokens", 0)
+            return data.get("choices", [{}])[0].get("message", {}).get("content", ""), in_tok, out_tok
+        register_backend(f"proxy-{model}", key,
+                         f"{PROXY_URL}/chat/completions",
+                         payload_fn, parse_fn,
+                         models=[model],
+                         paid=True,
+                         cost_per_1m_input=0.50,
+                         cost_per_1m_output=2.00)
 
 
 def forager_openrouter():
@@ -102,12 +137,12 @@ def forager_openrouter():
         if "error" in data:
             raise RuntimeError(data["error"].get("message", str(data["error"])))
         return (data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                or data.get("choices", [{}])[0].get("message", {}).get("reasoning", ""))
-    register_backend("openrouter", "OPENROUTER_API_KEY",
+                or data.get("choices", [{}])[0].get("message", {}).get("reasoning", "")), 0, 0
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    register_backend("openrouter", key,
                      "https://openrouter.ai/api/v1/chat/completions",
                      payload_fn, parse_fn, [
                          "qwen/qwen3-coder:free",
-                         "minimax/minimax-m2.5:free",
                          "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
                      ])
 
@@ -129,19 +164,59 @@ def forager_gemini():
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
             if parts:
-                return parts[0].get("text", "")
+                return parts[0].get("text", ""), 0, 0
         raise RuntimeError("empty response")
     key = os.environ.get("GEMINI_API_KEY", "")
     model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     if key:
-        register_backend("gemini", "GEMINI_API_KEY",
-                         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-                         payload_fn, parse_fn)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        register_backend("gemini", key, url, payload_fn, parse_fn, needs_auth_header=False)
 
 
-forager_deepseek()
+def read_free_api():
+    if not API_FREE_FILE.exists():
+        return
+    for line in API_FREE_FILE.read_text("utf-8").strip().split("\n"):
+        line = line.strip()
+        if not line or not line.startswith("sk-"):
+            continue
+        def payload_fn(model):
+            return {
+                "model": model or "deepseek-chat",
+                "messages": [{"role": "user", "content": "__PROMPT__"}],
+                "temperature": get_cycle_temp(),
+                "max_tokens": 1000,
+                "top_p": 0.95,
+            }
+        def parse_fn(data):
+            usage = data.get("usage", {})
+            in_tok = usage.get("prompt_tokens", 0)
+            out_tok = usage.get("completion_tokens", 0)
+            return data.get("choices", [{}])[0].get("message", {}).get("content", ""), in_tok, out_tok
+        # prioritize free keys: insert at front, mark paid=False
+        key = line.strip()
+        backend = {
+            "name": f"deepseek-free-{key[-8:]}",
+            "key": key,
+            "url": "https://api.deepseek.com/v1/chat/completions",
+            "make_payload": payload_fn,
+            "parse_response": parse_fn,
+            "models": ["deepseek-chat"],
+            "paid": False,
+            "cost_in": 0,
+            "cost_out": 0,
+            "needs_auth_header": True,
+        }
+        BACKENDS.insert(0, backend)
+        log_forage(f"deepseek-free-{key[-8:]}", "free key loaded")
+
+
+read_free_api()
+read_api_txt()
 forager_openrouter()
 forager_gemini()
+# free first, then proxy paid backends (bothub)
+BACKENDS.sort(key=lambda b: (b["paid"], "free" not in b["name"], b["name"]))
 
 MUTATIONS = [
     "Write as if the language itself is decaying mid-sentence.",
@@ -256,37 +331,56 @@ def build_prompt(cat, topic, seed, fmt, humor):
 def call_llm(prompt):
     for backend in BACKENDS:
         name = backend["name"]
-        headers = {"Authorization": f"Bearer {backend['key']}"}
-        if name == "gemini":
-            headers = {}
+        is_paid = backend["paid"]
+        print(f"  [trying {name}]", flush=True)
+        headers = {}
+        if backend["needs_auth_header"]:
+            headers["Authorization"] = f"Bearer {backend['key']}"
         for model in backend["models"]:
             payload = backend["make_payload"](model)
-            payload_str = json.dumps(payload).replace("__PROMPT__", prompt)
+            for msg in payload.get("messages", []):
+                if isinstance(msg.get("content"), str):
+                    msg["content"] = msg["content"].replace("__PROMPT__", prompt)
             try:
                 resp = requests.post(
                     backend["url"],
                     headers=headers,
-                    data=payload_str,
+                    json=payload,
                     timeout=180,
                 )
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:100]}")
                 data = resp.json()
-                content = backend["parse_response"](data)
-                if content:
-                    log_forage(name, "success", f"model={model or 'default'}")
+                if "error" in data:
+                    raise RuntimeError(data["error"].get("message", str(data["error"])))
+                result = backend["parse_response"](data)
+                if isinstance(result, tuple):
+                    content, in_tok, out_tok = result
+                else:
+                    content, in_tok, out_tok = result, 0, 0
+                if content and len(content) > 10:
+                    if is_paid and (in_tok or out_tok) and backend["cost_in"] > 0:
+                        cost = (in_tok * backend["cost_in"] + out_tok * backend["cost_out"]) / 1_000_000
+                        log_cost(cost, f"{name}/{model}: {in_tok}↑ {out_tok}↓")
+                    log_forage(name, "success", f"model={model}")
                     return content
+                log_forage(name, "short/no content", f"model={model}")
             except Exception as e:
                 log_forage(name, "failed", f"model={model or 'default'}: {str(e)[:60]}")
                 continue
-    print("  [no backend succeeded. set DEEPSEEK_API_KEY (free) or OPENROUTER_API_KEY]")
-    print("  DeepSeek: free 10M tokens at https://platform.deepseek.com")
-    print("  OpenRouter: https://openrouter.ai/keys")
-    print("  Gemini: free tier at https://aistudio.google.com/apikey")
+    print("  [all backends exhausted]")
+    print("  configured backends:")
+    for b in BACKENDS:
+        tag = "paid" if b["paid"] else "free"
+        print(f"    {b['name']} ({tag})")
     print()
     print("  last forage log entries:")
     if FORAGE_LOG.exists():
         lines = FORAGE_LOG.read_text("utf-8").strip().split("\n")
         for line in lines[-5:]:
             print(f"    {line}")
+    print()
+    print(f"  total cost: ${TOTAL_COST[0]:.5f}")
     sys.exit(1)
 
 
@@ -597,10 +691,12 @@ def main():
     pr = lambda *a, **kw: print(*[safe_pr(x) for x in a], **kw, flush=True)
     temp = get_cycle_temp()
     pr("[agent] waking up")
-    active = [b["name"] for b in BACKENDS]
+    active = [f"{b['name']}{'$' if b['paid'] else ''}" for b in BACKENDS]
     if active:
         pr(f"  backends: {', '.join(active)}")
     pr(f"  temp:   {temp} (14d cycle)")
+    if TOTAL_COST[0] > 0:
+        pr(f"  total cost: ${TOTAL_COST[0]:.5f}")
     pr()
 
     update_genome()

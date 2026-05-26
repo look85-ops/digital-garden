@@ -1,5 +1,8 @@
-[2026-05-26 08:06:23] deepseek: no key — DEEPSEEK_API_KEY not set
-[2026-05-26 08:06:23] openrouter: key found — OPENROUTER_API_KEY
-[2026-05-26 08:06:24] openrouter: failed — model=qwen/qwen3-coder:free: Provider returned error
-[2026-05-26 08:06:46] openrouter: failed — model=minimax/minimax-m2.5:free: Provider returned error
-[2026-05-26 08:06:47] openrouter: failed — model=cognitivecomputations/dolphin-mistral-24b-venice-edition:free: Provider returned error
+[2026-05-26 08:27:32] deepseek-free-89444680: free key loaded
+[2026-05-26 08:27:32] deepseek-free-8c84662e: free key loaded
+[2026-05-26 08:27:32] proxy-deepseek-chat-v3-0324: paid key loaded
+[2026-05-26 08:27:32] proxy-deepseek-r1-0528: paid key loaded
+[2026-05-26 08:27:32] openrouter: no key
+[2026-05-26 08:27:33] deepseek-free-89444680: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:27:34] deepseek-free-8c84662e: failed — model=deepseek-chat: HTTP 402: {"error":{"message":"Insufficient Balance","type":
+[2026-05-26 08:27:54] proxy-deepseek-chat-v3-0324: success — model=deepseek-chat-v3-0324
