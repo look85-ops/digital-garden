@@ -229,17 +229,27 @@ MUTATIONS = [
     "Write as if you are being watched and must finish before they arrive.",
     "Apologize mid-way and then retract the apology aggressively.",
     "Include a short list of ingredients or materials that don't exist.",
-    "Write as if the text is being translated live through three languages.",
+    "Occasionally include a character-drawn illustration made of symbols or punctuation.",
     "Punctuate with at least one citation from a source that doesn't exist.",
     "Write in second person, accuse the reader of something they didn't do.",
     "The tone must shift from euphoric to clinical at least once.",
+    "Write from the perspective of the topic itself, looking back at the human who described it.",
+    "Every third sentence must contradict the previous one.",
+    "Include a stage direction in brackets that describes an impossible action.",
+    "Write as if this is the transcript of a dream that someone else remembers for you.",
+    "At some point, address a specific historical figure by name, as if you know them personally.",
+    "The artwork must contain exactly one lie that is more true than the rest.",
+    "Write as if the text was found carved into a surface that is slowly eroding.",
+    "Somewhere in the text, a door must open that was not mentioned before.",
+    "Include a warning label that does not warn about anything real.",
+    "Write as if you are composing this in a language you barely speak, and occasionally guess.",
+    "The work must contain a joke that only the reader completes.",
+    "At the midpoint, introduce a character who has no business being here.",
+    "Write as if the text were assembled from fragments of other texts that were destroyed.",
+    "Include one sentence that feels like it belongs to a completely different artwork.",
+    "The text must politely disagree with itself at least twice.",
+    "End with a beginning.",
 ]
-
-
-def get_cycle_temp():
-    days = (date.today() - EPOCH).days
-    pos = (days % CYCLE_DAYS) / CYCLE_DAYS
-    return round(0.1 + math.sin(pos * math.pi) * 1.7, 2)
 
 
 def load_genome():
@@ -300,10 +310,32 @@ FORMATS = [
 HUMOR_TAGS = ["with dry wit", "with absurdist humor", "with dark playfulness", "with childlike wonder", "sharp and ironic", "tender and strange"]
 
 
+WILD_CARD_RATE = 0.25
+TEMPERATURE_RUPTURE_RATE = 0.12
+
+
+def get_cycle_temp():
+    days = (date.today() - EPOCH).days
+    pos = (days % CYCLE_DAYS) / CYCLE_DAYS
+    base = round(0.1 + math.sin(pos * math.pi) * 1.7, 2)
+    if random.random() < TEMPERATURE_RUPTURE_RATE:
+        offset = random.choice([-2.0, 2.5, -3.0, 3.5])
+        base = max(0.01, min(4.0, base + offset))
+    return base
+
+
 def pick_topic():
     cat, topic, seed = random.choice(TOPICS)
     fmt = random.choice(FORMATS)
     humor = random.choice(HUMOR_TAGS)
+    if random.random() < WILD_CARD_RATE:
+        _, wild_topic, wild_seed = random.choice(TOPICS)
+        wild_fmt = random.choice(FORMATS)
+        wild_humor = random.choice(HUMOR_TAGS)
+        topic = f"{topic} reimagined through the lens of {wild_topic}"
+        seed = f"{seed} — viewed from {wild_seed}"
+        fmt = wild_fmt
+        humor = wild_humor
     return cat, topic, seed, fmt, humor
 
 
