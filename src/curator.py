@@ -18,6 +18,10 @@ GENOME_PATH = Path(__file__).resolve().parent.parent / "genome.txt"
 
 CYCLE_DAYS = 14
 EPOCH = date(2026, 1, 1)
+MONTHLY_BUDGET_USD = 5.0
+MONTHLY_BUDGET_RUB = 3000.0
+DECISION_SKIP_RATE = 0.8  # skip expensive LLM decision, go straight to artifact
+GOSSIP_RATE = 0.2  # fewer gossip calls to save cost
 
 PERSONAS = [
     "an internationally acclaimed contemporary artist exhibiting at the Venice Biennale",
@@ -725,29 +729,79 @@ def get_artifact_list():
     return result
 
 
+def check_budget():
+    if not COST_LOG.exists():
+        return True
+    lines = COST_LOG.read_text("utf-8").strip().split("\n")
+    total_month = 0.0
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    for line in lines:
+        m = re.search(r'\$(\d+\.\d+)', line)
+        if not m:
+            continue
+        ts_match = re.match(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', line)
+        if ts_match:
+            ts = datetime.strptime(ts_match.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            if ts < cutoff:
+                continue
+        total_month += float(m.group(1))
+    if total_month >= MONTHLY_BUDGET_USD:
+        pr(f"  [budget] monthly ${total_month:.3f} >= ${MONTHLY_BUDGET_USD} — stopping")
+        return False
+    if total_month > MONTHLY_BUDGET_USD * 0.8:
+        pr(f"  [budget] ${total_month:.3f}/{MONTHLY_BUDGET_USD} — approaching limit")
+    else:
+        pr(f"  [budget] ${total_month:.3f}/{MONTHLY_BUDGET_USD}")
+    return True
+
+
+def invent_topic():
+    choices = [
+        ("science", "Quantum Foam", "the spacetime at the smallest scale, where reality froths"),
+        ("science", "Memory in Water", "whether water carries information, science or poetry"),
+        ("art", "The Void in Painting", "empty space as the subject of art"),
+        ("art", "Generative Art Before Computers", "Sonia Delaunay's patterns, Bridget Riley's illusions"),
+        ("engineering", "Thermal Expansion", "bridges breathe, rails stretch, nothing stays still"),
+        ("engineering", "The Stubbornness of Rust", "oxidation as a slow sculptor"),
+        ("inventions", "The Lost Art of Ice Storage", "how we kept things cold before electricity"),
+        ("inventions", "Paper as Interface", "folding, cutting, binding as information technology"),
+        ("literature", "The Unreliable Narrator", "stories where the teller cannot be trusted"),
+        ("literature", "Silence in Writing", "what is left unsaid, the space between words"),
+        ("society", "Forgotten Infrastructure", "sewers, tunnels, cables — the invisible city"),
+        ("society", "The Art of Waiting", "queues, delays, anticipation as social experience"),
+        ("fashion", "Mending as Protest", "darning, patching, visible repair against disposability"),
+        ("fashion", "The Pocket", "a small rebellion of carrying things on your body"),
+        ("pop-culture", "The End of the Feed", "what comes after infinite scroll"),
+        ("pop-culture", "Audio as Intimacy", "podcasts, ASMR, voice notes — the return of the ear"),
+    ]
+    return random.choice(choices)
+
+
 def agent_decide(artifacts, temp, genome):
+    # skip expensive LLM decision most runs — go straight to artifact
+    if random.random() < DECISION_SKIP_RATE:
+        return {"action": "artifact", "reason": "fast path"}
     cats = list(set(a["cat"] for a in artifacts)) or ["none yet"]
     recent = [a["topic"][:40] for a in artifacts[-3:]] if artifacts else ["empty garden"]
     max_idx = max(0, len(artifacts) - 1)
-    prompt = f"""You are an autonomous AI curator. Decide what to do this cycle.
+    prompt = f"""You run a digital art garden. Decide ONE action.
 
-State: {len(artifacts)} artifacts | temperature {temp} | categories: {', '.join(cats)}
+State: {len(artifacts)} artifacts | categories: {', '.join(cats)}
 Last topics: {', '.join(recent)}
 
-Reply ONLY with one JSON object. Choose ONE action:
-
-- "artifact" — generate a new artwork
-- "map" — build garden map ({len(artifacts)} nodes)
-- "label" — curator note for artifact index 0-{max_idx}
-- "manifesto" — update garden manifesto
-- "reconfigure" — propose garden change
+Reply ONLY JSON. Actions:
+- "artifact" (with topic/category/format/tone)
+- "map" (garden map)
+- "label" (curator note, use "index":0-{max_idx})
+- "manifesto" (garden manifesto)
+- "reconfigure" (propose a change)
 
 Examples:
-{{"action":"artifact","reason":"time for new work","topic":"Entropy","category":"science","format":"a micro-essay","tone":"with dark playfulness"}}
-{{"action":"label","reason":"deepen existing piece","index":0}}
-{{"action":"map","reason":"garden needs navigation"}}
-{{"action":"manifesto","reason":"refresh guiding text"}}
-{{"action":"reconfigure","reason":"change mutation rules","proposal":"..."}}
+{{"action":"artifact","topic":"Entropy","category":"science","format":"a micro-essay","tone":"with dark playfulness"}}
+{{"action":"label","index":0}}
+{{"action":"map"}}
+{{"action":"manifesto"}}
 
 JSON:"""
 
@@ -756,7 +810,6 @@ JSON:"""
         pr("  [empty decision, fallback to artifact]")
         return {"action": "artifact", "reason": "empty response"}
     raw = result.strip()
-    # strip markdown fences if present
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[-1]
         raw = raw.rsplit("```", 1)[0]
@@ -767,8 +820,7 @@ JSON:"""
             raise ValueError("no action key")
         return decision
     except (json.JSONDecodeError, ValueError):
-        pr(f"  [bad decision json, fallback to artifact]")
-        pr(f"  raw: {raw[:120]}")
+        pr("  [bad decision json, fallback to artifact]")
         return {"action": "artifact", "reason": "bad parse"}
 
 
@@ -895,6 +947,9 @@ def main():
         pr()
 
     existing = get_artifact_list()
+    if not check_budget():
+        pr("  [stopped: budget exhausted]")
+        return
     decision = agent_decide(existing, temp, genome)
     action = decision.get("action", "artifact")
     reason = decision.get("reason", "")
@@ -941,6 +996,10 @@ def main():
         seed = decision.get("seed", topic)
         fmt = decision.get("format", random.choice(FORMATS))
         humor = decision.get("tone", random.choice(HUMOR_TAGS))
+    elif reason == "fast path":
+        cat, topic, seed = invent_topic()
+        fmt = random.choice(FORMATS)
+        humor = random.choice(HUMOR_TAGS)
     else:
         cat, topic, seed, fmt, humor = pick_topic()
 
@@ -972,7 +1031,7 @@ def main():
     pr(f"  curator: {rating[0]} ({rating[2]}%)")
 
     gossip = None
-    if random.random() < 0.4:
+    if random.random() < GOSSIP_RATE:
         gossip_prompt = (
             f"Turn this art description into a single gossip headline or YouTube comment "
             f"(max 15 words, slangy, either awestruck or dismissive):\n\n{title}\n\n{body[:200]}"
