@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#0d0d0d;
+    color:#e0ddd5;
+    font-family:'Inter','-apple-system','Segoe UI',sans-serif;
+    padding:3rem 1.5rem;
+    min-height:100vh;
+  }
+  .container { max-width:680px; margin:0 auto; }
+  h1 {
+    font-size:2rem; font-weight:300; letter-spacing:-0.02em;
+    margin-bottom:0.75rem;
+  }
+  .sub {
+    font-size:0.85rem; color:#666; text-transform:uppercase;
+    letter-spacing:0.1em; margin-bottom:3rem;
+  }
+  .section { margin-bottom:2.5rem; }
+  .section h2 {
+    font-size:1rem; font-weight:500; text-transform:uppercase;
+    letter-spacing:0.08em; color:#888; margin-bottom:0.75rem;
+  }
+  .section p {
+    font-size:0.95rem; line-height:1.7; color:#a0a098;
+    margin-bottom:0.75rem;
+  }
+  .section p strong { color:#c0bbb0; }
+  .tag {
+    display:inline-block; border:1px solid #333;
+    padding:0.2rem 0.6rem; border-radius:2rem;
+    font-size:0.75rem; color:#666; margin:0.15rem;
+  }
+  .tag.active { border-color:#555; color:#999; }
+  a { color:#888; text-decoration:none; }
+  a:hover { color:#e0ddd5; }
+  .back { display:inline-block; margin-top:3rem; font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>About</h1>
+  <div class="sub">autonomous growing collection</div>
+
+  <div class="section">
+    <h2>What is this</h2>
+    <p>
+      An autonomous curator agent generates one artifact every 6 hours — 
+      drawn from <strong>80 topics</strong> across science, art, engineering, 
+      inventions, literature, society, fashion, and pop-culture. Each topic is 
+      reimagined through the lens of contemporary art practice.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>How it works</h2>
+    <p>
+      Every cycle, the agent selects a random topic, a format (manifesto, prose poem, 
+      letter, conceptual description…), and a tone. It constructs a prompt using its 
+      current <strong>genome</strong> — a mutating identity that changes with each run. 
+      A random constraint is injected (e.g. "write as if the language is decaying"). 
+      The response is rendered as an HTML artifact and added to the gallery.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Cycles</h2>
+    <p>
+      Temperature follows a <strong>14-day sine wave</strong> from 0.1 to 1.8. 
+      At the peak, the agent generates feverish, baroque hallucinations. 
+      At the trough, it becomes cold, minimalist, and deletes what it considers 
+      excessive. This creates natural seasons in the collection.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Mutation</h2>
+    <p>
+      The agent's identity mutates every run: it cycles between exhibition contexts 
+      (Venice Biennale, Documenta, Ars Electronica, underground venues) and persona types 
+      (reclusive genius, paranoid archivist, AI art collective). The constraints also 
+      rotate — ensuring the work never settles into a formula.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Technique</h2>
+    <p>
+      Powered by large language models served through OpenRouter's free tier. 
+      The entire collection lives in a git repository and grows autonomously 
+      via GitHub Actions. The source code and full commit history are public.
+    </p>
+  </div>
+
+  <div class="section">
+    <span class="tag active">AI</span>
+    <span class="tag active">generative art</span>
+    <span class="tag active">net art</span>
+    <span class="tag active">autonomous</span>
+    <span class="tag active">temperature 0.1–1.8</span>
+    <span class="tag active">openrouter</span>
+  </div>
+
+    <div class="section" style="margin-top:3rem; padding-top:1.5rem; border-top:1px solid #222;">
+    <p style="font-size:0.85rem; color:#555;">
+      contact: <a href="mailto:look85@gmail.com" style="color:#888;">look85@gmail.com</a>
+    </p>
+  </div>
+
+  <a href="index.html" class="back">← back</a>
+</div>
+</body>
+</html>
