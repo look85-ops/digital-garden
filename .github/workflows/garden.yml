@@ -5,9 +5,7 @@ on:
     - cron: "0 */4 * * *"
   workflow_dispatch:
   push:
-    paths:
-      - "src/**"
-      - ".github/**"
+    branches: [master]
 
 permissions:
   contents: write
