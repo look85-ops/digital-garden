@@ -18,7 +18,6 @@ INDEX_PATH = Path(__file__).resolve().parent.parent / "index.html"
 CYCLE_DAYS = 14
 EPOCH = date(2026, 1, 1)
 MONTHLY_BUDGET_USD = 5.0
-MONTHLY_BUDGET_RUB = 3000.0
 GOSSIP_RATE = 0.1
 
 PERSONAS = [
@@ -295,13 +294,13 @@ def get_cycle_temp():
 def read_soil():
     if not SOIL_PATH.exists():
         return {"version": 1, "cycle": 0, "mood": "quiet uncertainty",
-                "obsession": "", "imprints": []}
+                "obsession": "", "imprints": [], "last_reflection": ""}
     try:
         return json.loads(SOIL_PATH.read_text("utf-8"))
     except (json.JSONDecodeError, KeyError):
         log_forage("souil", "corrupted", "reset to default")
         return {"version": 1, "cycle": 0, "mood": "quiet uncertainty",
-                "obsession": "", "imprints": []}
+                "obsession": "", "imprints": [], "last_reflection": ""}
 
 
 def write_soil(soil):
@@ -492,9 +491,6 @@ def call_llm(prompt, only_backend=None):
     sys.exit(1)
 
 
-GHOSTS_DIR = Path(__file__).resolve().parent.parent / "ghosts"
-
-
 def paranoid_rating(title, body, cat):
     seed_str = title + body[:50] + cat
     h = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
@@ -538,7 +534,7 @@ def extract_body(text):
     return text
 
 
-def generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id, temp, rating=None, gossip=None):
+def generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, rating=None, gossip=None):
     body_html = "".join(
         f"<p>{para.strip()}</p>\n" for para in body.split("\n") if para.strip()
     )
@@ -711,10 +707,15 @@ def main():
     else:
         pr("  soil:   no extract")
 
-    days = (date.today() - EPOCH).days
-    if days % DEEP_REFLECTION_INTERVAL == 0 and soil["imprints"]:
+    last_ref = soil.get("last_reflection", "")
+    if last_ref:
+        ref_passed = (date.today() - date.fromisoformat(last_ref)).days
+    else:
+        ref_passed = DEEP_REFLECTION_INTERVAL
+    if ref_passed >= DEEP_REFLECTION_INTERVAL and soil["imprints"]:
         deep_reflection(soil)
-        soil["cycle"] = days // DEEP_REFLECTION_INTERVAL
+        soil["last_reflection"] = date.today().isoformat()
+        soil["cycle"] = ref_passed // DEEP_REFLECTION_INTERVAL
         pr(f"  soil:   deep reflection — {soil.get('obsession', '')}")
     write_soil(soil)
 
@@ -737,7 +738,7 @@ def main():
             gossip = gossip_raw.strip().strip('"').strip("'").split("\n")[0][:120]
             pr(f"  gossip: {gossip}")
 
-    html = generate_html_artifact(cat, topic, seed, fmt, humor, title, body, artifact_id, temp, rating=rating, gossip=gossip)
+    html = generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, rating=rating, gossip=gossip)
 
     # Clean slate: remove old generated files
     for f in Path(__file__).resolve().parent.parent.glob("artifacts/artifact_*.html"):
