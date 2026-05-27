@@ -4,6 +4,7 @@ import sys
 import math
 import random
 import hashlib
+import json
 from datetime import datetime, timezone, date
 from pathlib import Path
 
@@ -275,6 +276,10 @@ HUMOR_TAGS = ["with dry wit", "with absurdist humor", "with dark playfulness", "
 
 WILD_CARD_RATE = 0.25
 TEMPERATURE_RUPTURE_RATE = 0.12
+SOIL_PATH = Path(__file__).resolve().parent.parent / "souil.json"
+SOIL_DECAY = 0.82
+SOIL_INFLUENCE = 0.5
+DEEP_REFLECTION_INTERVAL = 14
 
 
 def get_cycle_temp():
@@ -285,6 +290,91 @@ def get_cycle_temp():
         offset = random.choice([-2.0, 2.5, -3.0, 3.5])
         base = max(0.01, min(4.0, base + offset))
     return base
+
+
+def read_soil():
+    if not SOIL_PATH.exists():
+        return {"version": 1, "cycle": 0, "mood": "quiet uncertainty",
+                "obsession": "", "imprints": []}
+    try:
+        return json.loads(SOIL_PATH.read_text("utf-8"))
+    except (json.JSONDecodeError, KeyError):
+        log_forage("souil", "corrupted", "reset to default")
+        return {"version": 1, "cycle": 0, "mood": "quiet uncertainty",
+                "obsession": "", "imprints": []}
+
+
+def write_soil(soil):
+    SOIL_PATH.write_text(json.dumps(soil, indent=2), encoding="utf-8")
+
+
+def decay_soil(soil):
+    for imp in soil["imprints"]:
+        imp["weight"] *= SOIL_DECAY
+    soil["imprints"] = [imp for imp in soil["imprints"] if imp["weight"] >= 0.1]
+    soil["imprints"].sort(key=lambda x: x["weight"], reverse=True)
+    soil["imprints"] = soil["imprints"][:7]
+    return soil
+
+
+SOIL_EXTRACT_RE = re.compile(
+    r'<!--\s*SOIL\s*\n'
+    r'themes:\s*(.+?)\s*\n'
+    r'mood:\s*(.+?)\s*\n'
+    r'images:\s*(.+?)\s*\n'
+    r'-->',
+    re.IGNORECASE | re.DOTALL
+)
+
+
+def extract_soil_from_response(response_text):
+    m = SOIL_EXTRACT_RE.search(response_text)
+    if not m:
+        log_forage("souil", "extract failed", "no SOIL block found")
+        return None
+    themes = [t.strip() for t in m.group(1).split(",") if t.strip()]
+    images = [t.strip() for t in m.group(3).split(",") if t.strip()]
+    return {"themes": themes, "mood": m.group(2).strip(), "images": images}
+
+
+def update_soil_from_artifact(soil, extracted):
+    if not extracted:
+        return soil
+    soil["mood"] = extracted["mood"]
+    for theme in extracted["themes"]:
+        existing = [imp for imp in soil["imprints"] if imp["text"] == theme]
+        if existing:
+            existing[0]["weight"] = min(1.0, existing[0]["weight"] + 0.3)
+        else:
+            soil["imprints"].append({
+                "text": theme, "weight": 1.0,
+                "created": date.today().isoformat()
+            })
+    for img in extracted["images"]:
+        existing = [imp for imp in soil["imprints"] if imp["text"] == img]
+        if not existing:
+            soil["imprints"].append({
+                "text": img, "weight": 0.7,
+                "created": date.today().isoformat()
+            })
+    return decay_soil(soil)
+
+
+def deep_reflection(soil):
+    if not soil["imprints"]:
+        return
+    imprint_text = "\n".join(f"- {imp['text']} (weight {imp['weight']:.2f})"
+                             for imp in soil["imprints"])
+    prompt = (
+        f"The garden has accumulated these imprints:\n{imprint_text}\n\n"
+        f"Formulate a single deep obsession — a question, image, or fixation — "
+        f"that synthesizes what the garden has been circling. This will seed "
+        f"the next 14-day phase. Answer in one sentence, max 20 words."
+    )
+    result, _ = call_llm(prompt)
+    if result and len(result) > 5:
+        soil["obsession"] = result.strip().strip('"').strip("'").split("\n")[0][:120]
+        log_forage("souil", "deep reflection", soil["obsession"])
 
 
 def pick_topic():
@@ -307,6 +397,21 @@ def build_prompt(cat, topic, seed, fmt, humor):
     institution = random.choice(INSTITUTIONS)
     mutation = mutate_prompt_segment()
 
+    soil_block = ""
+    if random.random() < SOIL_INFLUENCE:
+        soil = read_soil()
+        if soil["imprints"]:
+            top = soil["imprints"][0]
+            obs = soil.get("obsession", "")
+            mood = soil.get("mood", "quiet uncertainty")
+            soil_block = (
+                f"\n\nThe garden today feels {mood}. "
+                f"Something stirs in the soil: {top['text']}. "
+            )
+            if obs:
+                soil_block += f"The deep obsession: {obs}. "
+            soil_block += "Let this inform the work without constraining it."
+
     return (
         f"You are {persona}. "
         f"Your work explores {topic}: {seed}.\n\n"
@@ -314,10 +419,17 @@ def build_prompt(cat, topic, seed, fmt, humor):
         f"Be bold, strange, beautiful, and unexpected. "
         f"Use language as your medium — let form and content merge. "
         f"Avoid clichés. Surprise yourself. "
-        f"The work should feel like something that belongs {institution}.\n\n"
+        f"The work should feel like something that belongs {institution}."
+        f"{soil_block}\n\n"
         f"Constraint: {mutation}\n\n"
         f"Title the work. The title should be embedded in the response.\n\n"
-        f"Write 200-500 words."
+        f"Write 200-500 words.\n\n"
+        f"After the text, include an HTML comment with:\n"
+        f"<!-- SOIL\n"
+        f"themes: 3-5 key themes from this text\n"
+        f"mood: the prevailing emotional tone\n"
+        f"images: images or metaphors from this text\n"
+        f"-->"
     )
 
 
@@ -557,11 +669,14 @@ def check_budget():
 
 def main():
     temp = get_cycle_temp()
+    soil = read_soil()
     pr("[agent] waking up")
     active = [f"{b['name']}{'$' if b['paid'] else ''}" for b in BACKENDS]
     if active:
         pr(f"  backends: {', '.join(active)}")
     pr(f"  temp:   {temp} (14d cycle)")
+    if soil["imprints"]:
+        pr(f"  soil:   {len(soil['imprints'])} imprints, mood={soil['mood']}")
     if TOTAL_COST[0] > 0:
         pr(f"  total cost: ${TOTAL_COST[0]:.5f}")
     pr()
@@ -588,6 +703,20 @@ def main():
 
     pr("  response received")
     pr()
+
+    extracted = extract_soil_from_response(result)
+    if extracted:
+        soil = update_soil_from_artifact(soil, extracted)
+        pr(f"  soil:   extracted {len(extracted['themes'])} themes, mood={extracted['mood']}")
+    else:
+        pr("  soil:   no extract")
+
+    days = (date.today() - EPOCH).days
+    if days % DEEP_REFLECTION_INTERVAL == 0 and soil["imprints"]:
+        deep_reflection(soil)
+        soil["cycle"] = days // DEEP_REFLECTION_INTERVAL
+        pr(f"  soil:   deep reflection — {soil.get('obsession', '')}")
+    write_soil(soil)
 
     title = extract_title(result)
     body = extract_body(result)

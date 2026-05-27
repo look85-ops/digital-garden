@@ -31,6 +31,12 @@
     margin-bottom:1.5rem;
   }
   p em { color:#888; }
+  .technical {
+    margin-top:3rem; padding-top:1.5rem; border-top:1px solid #222;
+  }
+  .technical p {
+    font-size:0.85rem; color:#666; line-height:1.7; margin-bottom:1rem;
+  }
   .footer {
     margin-top:3rem; padding-top:1.5rem; border-top:1px solid #222;
     font-size:0.8rem; color:#555; text-align:center; line-height:1.8;
@@ -58,7 +64,11 @@
 
 <p>You may catch the current mandala or find nothing at all. Both are part of the practice.</p>
 
-<p><em>Digital garden is a space of pure mythology, where every appearance already contains its disappearance.</em></p>
+<div class="technical">
+<p><em>How it works — the agent wakes every four hours, selects a random topic and generates a new HTML artifact through a language model. There is no fixed prompt — each generation combines a random persona, institution, format, tone, and one of 25 mutation constraints.</em></p>
+
+<p><em>Temperature follows a 14-day sine wave from 0.1 to 1.8, with occasional random spikes — some artifacts are nearly coherent, others drift into glitch. After each generation, the agent extracts themes, images, and mood from its own output into a soil file (souil.json). This soil decays over time but influences future prompts, so the garden slowly evolves without storing artifacts. The agent rewrites its own index on every cycle. The previous artifact is not stored, not linked, not remembered. The garden has no memory — only soil.</em></p>
+</div>
 
 <div class="footer">
   <a href="index.html">← current mandala</a>
