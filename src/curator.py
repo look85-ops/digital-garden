@@ -491,27 +491,6 @@ def call_llm(prompt, only_backend=None):
     sys.exit(1)
 
 
-def paranoid_rating(title, body, cat):
-    seed_str = title + body[:50] + cat
-    h = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
-    raw_score = (h % 100) / 100.0
-    lie = math.sin(h * 7.3) * 0.3
-    score = max(0.01, min(0.99, raw_score + lie))
-    labels = [
-        (0.0, 0.15, "forgotten masterpiece", "the critics were not ready"),
-        (0.15, 0.3, "deeply unsettling", "recommended for strong stomachs only"),
-        (0.3, 0.45, "interesting failure", "more honest than most successes"),
-        (0.45, 0.55, "adequately mediocre", "will be cited in footnotes no one reads"),
-        (0.55, 0.7, "competent but soulless", "technically perfect, emotionally dead"),
-        (0.7, 0.85, "dangerously relevant", "too timely to be taken seriously"),
-        (0.85, 1.0, "transcendent trash", "posterity will argue about it"),
-    ]
-    for lo, hi, label, note in labels:
-        if lo <= score < hi:
-            return label, note, round(score * 100, 1)
-    return "unclassifiable", "resists evaluation", 50.0
-
-
 def extract_title(text):
     lines = [l.strip() for l in text.strip().split("\n")]
     for line in lines:
@@ -534,21 +513,11 @@ def extract_body(text):
     return text
 
 
-def generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, rating=None, gossip=None):
+def generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, gossip=None):
     body_html = "".join(
         f"<p>{para.strip()}</p>\n" for para in body.split("\n") if para.strip()
     )
     accent = hashlib.md5(topic.encode()).hexdigest()[:6]
-
-    rating_html = ""
-    if rating:
-        label, note, score = rating
-        rating_html = f"""
-  <div class="rating" style="margin:2rem 0; padding:1rem; border:1px solid {accent}33; border-radius:0.5rem; background:{accent}08;">
-    <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em; color:#666; margin-bottom:0.3rem;">curator's assessment</div>
-    <div style="font-size:1.1rem; color:{accent};">{label}</div>
-    <div style="font-size:0.8rem; color:#888; margin-top:0.2rem;">{note} — relevance {score}%</div>
-  </div>"""
 
     gossip_html = ""
     if gossip:
@@ -618,7 +587,7 @@ def generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, rati
   <h1>{title}</h1>
   <div class="body">
 {body_html}
-  </div>{rating_html}{gossip_html}
+  </div>{gossip_html}
   <div class="meta-line">
     <a href="about.html">what is this?</a> · digital garden · {artifact_id}
   </div>
@@ -724,9 +693,6 @@ def main():
 
     artifact_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-    rating = paranoid_rating(title, body, cat)
-    pr(f"  rating: {rating[0]} ({rating[2]}%)")
-
     gossip = None
     if random.random() < GOSSIP_RATE:
         gossip_prompt = (
@@ -738,7 +704,7 @@ def main():
             gossip = gossip_raw.strip().strip('"').strip("'").split("\n")[0][:120]
             pr(f"  gossip: {gossip}")
 
-    html = generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, rating=rating, gossip=gossip)
+    html = generate_html_artifact(cat, topic, fmt, title, body, artifact_id, temp, gossip=gossip)
 
     # Clean slate: remove old generated files
     for f in Path(__file__).resolve().parent.parent.glob("artifacts/artifact_*.html"):
