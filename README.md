@@ -1,46 +1,70 @@
 # Digital Garden
 
-Автономно растущий арт-проект, создаваемый AI-агентом. Один артефакт каждые 4 часа. Температура — 14-дневная синусоида от 0.1 до 1.8, с редкими скачками. Без архива: каждый новый артефакт замещает предыдущий.
+**An autonomous AI art garden. One artifact every 4 hours. No archive — only impermanence.**
 
-Агент выбирает тему, переосмысляет её как современный художник и создаёт HTML-артефакт. После генерации из текста извлекаются ключевые темы, образы и тональность — они формируют свою почво-душу (souil.json), которая влияет на следующие генерации. Сад медленно эволюционирует, не накапливая артефакты.
+A language model agent generates a unique HTML artifact every four hours, themed around a random topic from 80+ curated subjects. The previous artifact is not stored, linked, or remembered. The garden has no memory — only soil.
 
-## Быстрый старт
+[**View the current artifact →**](https://look85-ops.github.io/digital-garden/)
+
+---
+
+## Concept
+
+Digital Garden is a practice of making and releasing — like building a sand mandala. Each artifact appears, lives for four hours, then vanishes. The meaning is not in the object but in the gesture of its creation and the acceptance of its impermanence.
+
+- **Temperature** follows a 14-day sine wave (0.1–1.8) with occasional random spikes
+- **Prompt** is assembled from random persona, institution, format, tone, and one of 25 mutation constraints
+- **Soil (`souil.json`)** — extracted themes, images, and mood from each artifact decay over time and influence future prompts
+- The garden slowly evolves without storing artifacts
+
+---
+
+## Quick Start
+
+### Run locally
 
 ```bash
 pip install -r requirements.txt
 
-# DeepSeek (рекомендуется, 10M токенов бесплатно)
-set DEEPSEEK_API_KEY=sk-ваш_ключ
+# DeepSeek (recommended, 10M free tokens)
+set DEEPSEEK_API_KEY=sk-your_key
 python src/curator.py
 
-# или OpenRouter
-set OPENROUTER_API_KEY=sk-or-v1-ваш_ключ
+# or OpenRouter
+set OPENROUTER_API_KEY=sk-or-v1-your_key
 python src/curator.py
 ```
 
-Ключи:
-- DeepSeek: https://platform.deepseek.com (free 10M tokens, без оплаты)
-- OpenRouter: https://openrouter.ai/keys (free tier)
+### Run on GitHub Actions (autonomous)
 
-## GitHub Actions (автономный рост)
+1. Fork or clone this repo
+2. Add your API key as a repository secret:
+   - `DEEPSEEK_API_KEY` (from [platform.deepseek.com](https://platform.deepseek.com)) — or
+   - `OPENROUTER_API_KEY` (from [openrouter.ai/keys](https://openrouter.ai/keys))
+3. The agent will run every 4 hours automatically via GitHub Actions
+4. Enable GitHub Pages (Settings → Pages → source: `master`, root `/`)
 
-1. Создать репозиторий на GitHub
-2. Залить проект в корень
-3. В Settings → Secrets → Actions добавить `DEEPSEEK_API_KEY` (или `OPENROUTER_API_KEY`)
-4. Агент будет запускаться каждые 4 часа автоматически
+Artifacts accumulate in `artifacts/`, gallery at `index.html`.
 
-Артефакты собираются в `artifacts/`, галерея — `index.html`. Включить GitHub Pages в настройках репозитория (source: main, папка: /).
+---
 
-## Структура
+## Project Structure
 
 ```
 garden/
 ├── src/
-│   ├── curator.py       # ядро агента
-│   └── sources.py       # банк тем (80 топиков)
-├── artifacts/           # сгенерированные артефакты
-├── index.html           # корневой артефакт (обновляется каждый цикл)
-├── souil.json           # внутреннее состояние сада (почва, настроение)
+│   ├── curator.py       # agent core — generation loop, prompt assembly, soil management
+│   └── sources.py       # topic bank (80+ concepts), personas, institutions, formats
+├── artifacts/           # generated HTML artifacts (local history)
+├── index.html           # root artifact — overwritten every cycle
+├── about.html           # manifesto / about page
+├── souil.json           # garden state (soil, mood, memory traces)
 ├── requirements.txt
 └── .github/workflows/garden.yml
 ```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
