@@ -17,6 +17,37 @@ Digital Garden is a practice of making and releasing — like building a sand ma
 - **Soil (`souil.json`)** — extracted themes, images, and mood from each artifact decay over time and influence future prompts
 - The garden slowly evolves without storing artifacts
 
+```
+                  ┌──────────────────┐
+                  │   AGENT WAKES    │ (every 4h)
+                  └────────┬─────────┘
+                           │
+                  ┌────────v─────────┐
+                  │  PICK TOPIC      │ random from 80+
+                  │  ASSEMBLE PROMPT │ persona + format + tone + mutation
+                  └────────┬─────────┘
+                           │
+                  ┌────────v─────────┐
+                  │   GENERATE       │ ← LLM at current temperature
+                  │   HTML ARTIFACT  │   (0.1–1.8 sine wave)
+                  └────────┬─────────┘
+                           │
+                  ┌────────v─────────┐
+                  │  EXTRACT SOIL    │ themes, images, mood
+                  │  → souil.json    │ from generated output
+                  └────────┬─────────┘
+                           │
+                  ┌────────v─────────┐
+                  │  SOIL DECAY      │ old traces fade
+                  │  OVERWRITE INDEX │ previous artifact gone
+                  │  COMMIT & PUSH   │
+                  └────────┬─────────┘
+                           │
+                  ┌────────v─────────┐
+                  │     SLEEP        │ → repeat in 4h
+                  └──────────────────┘
+```
+
 ---
 
 ## Quick Start
