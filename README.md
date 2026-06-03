@@ -17,6 +17,10 @@ Digital Garden is a practice of making and releasing — like building a sand ma
 - **Soil (`souil.json`)** — extracted themes, images, and mood from each artifact decay over time and influence future prompts
 - The garden slowly evolves without storing artifacts
 
+### Artistic Statement
+
+Digital Garden is an art project, not a tool. Its core principle is **impermanence**: each artifact is created to be destroyed. Any modification that introduces archiving, galleries, persistence, or memory violates the concept. If you want to build a collector or a gallery — please fork and go your own way. This original garden will remain a practice of release.
+
 ```
                   ┌──────────────────┐
                   │   AGENT WAKES    │ (every 4h)
