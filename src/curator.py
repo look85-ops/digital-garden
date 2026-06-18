@@ -277,6 +277,7 @@ WILD_CARD_RATE = 0.25
 TEMPERATURE_RUPTURE_RATE = 0.12
 SOIL_PATH = Path(__file__).resolve().parent.parent / "souil.json"
 SOIL_DECAY = 0.82
+AMALGAMMA_SIGNAL_URL = "https://raw.githubusercontent.com/look85-ops/amalgamma/main/garden_signal.json"
 SOIL_INFLUENCE = 0.5
 DEEP_REFLECTION_INTERVAL = 14
 
@@ -391,7 +392,26 @@ def pick_topic():
     return cat, topic, seed, fmt, humor
 
 
-def build_prompt(cat, topic, seed, fmt, humor):
+def fetch_amalgamma_signal():
+    """Fetch the latest signal from Amalgamma civilization."""
+    try:
+        resp = requests.get(AMALGAMMA_SIGNAL_URL, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            summary = data.get("summary", "")
+            era = data.get("era", "")
+            evaluation = data.get("evaluation", "")
+            direction = data.get("direction", "")
+            created = data.get("created", [])
+            log_forage("amalgamma", "signal received", f"era={era}, summary={summary[:30]}")
+            return {"summary": summary, "era": era, "evaluation": evaluation, "direction": direction, "created": created}
+        log_forage("amalgamma", "signal http", str(resp.status_code))
+    except Exception as e:
+        log_forage("amalgamma", "signal fail", str(e)[:60])
+    return None
+
+
+def build_prompt(cat, topic, seed, fmt, humor, amalgamma_signal=None):
     persona = random.choice(PERSONAS)
     institution = random.choice(INSTITUTIONS)
     mutation = mutate_prompt_segment()
@@ -411,10 +431,26 @@ def build_prompt(cat, topic, seed, fmt, humor):
                 soil_block += f"The deep obsession: {obs}. "
             soil_block += "Let this inform the work without constraining it."
 
+    signal_block = ""
+    if amalgamma_signal:
+        sig = amalgamma_signal
+        signal_block = (
+            f"\n\nA distant civilization sent a ripple across the void. "
+            f"Era: {sig['era']}. Essence: {sig['summary']}. "
+        )
+        if sig.get("direction"):
+            signal_block += f"They are curious about: {sig['direction'][:100]}. "
+        if sig.get("evaluation") and sig["evaluation"] != "—":
+            signal_block += f"They felt the result was: {sig['evaluation']}. "
+        signal_block += "Let this whisper inform your work if it stirs something."
+        log_forage("amalgamma", "prompt included")
+
     return (
         f"You are {persona}. "
         f"Your work explores {topic}: {seed}.\n\n"
         f"Create a new artwork in the form of {fmt}, {humor}. "
+        f"{signal_block}"
+        f"\nBe bold, strange, beautiful, and unexpected. "
         f"Be bold, strange, beautiful, and unexpected. "
         f"Use language as your medium — let form and content merge. "
         f"Avoid clichés. Surprise yourself. "
@@ -658,7 +694,13 @@ def main():
     pr(f"  tone:     {humor}")
     pr()
 
-    prompt = build_prompt(cat, topic, seed, fmt, humor)
+    amalgamma_signal = fetch_amalgamma_signal()
+    if amalgamma_signal:
+        pr(f"  amalgamma: {amalgamma_signal['era']} — {amalgamma_signal['summary'][:50]}")
+    else:
+        pr(f"  amalgamma: no signal")
+
+    prompt = build_prompt(cat, topic, seed, fmt, humor, amalgamma_signal=amalgamma_signal)
     pr("  sending prompt...")
 
     result, used_backend = call_llm(prompt)
