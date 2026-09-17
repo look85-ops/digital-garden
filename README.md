@@ -8,6 +8,17 @@ A language model agent generates a unique HTML artifact every four hours, themed
 
 ---
 
+## The diptych
+
+Digital Garden is one half of a pair:
+
+- **[Amalgama](https://github.com/look85-ops/amalgamma)** — reads the news every 4 hours and reflects it as a fullscreen abstract composition. *Witnessing.*
+- **Digital Garden** — creates text artifacts that live 4 hours and vanish. *Letting go.*
+
+One receives, the other releases. Together they ask: what happens to a signal when you stop holding on to it?
+
+---
+
 ## Concept
 
 Digital Garden is a practice of making and releasing — like building a sand mandala. Each artifact appears, lives for four hours, then vanishes. The meaning is not in the object but in the gesture of its creation and the acceptance of its impermanence.
